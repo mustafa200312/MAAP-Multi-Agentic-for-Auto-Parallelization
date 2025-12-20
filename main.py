@@ -33,7 +33,7 @@ except ImportError as e:
     sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(description="Auto-Parallelization Agent System")
+    parser = argparse.ArgumentParser(description="MAAP: Multi-Agentic for Auto Parallelization")
     parser.add_argument("input_file", help="Path to the Python file to optimize")
     parser.add_argument("--output", "-o", help="Path to save the optimized code. Defaults to <input>_optimized.py", default=None)
     
