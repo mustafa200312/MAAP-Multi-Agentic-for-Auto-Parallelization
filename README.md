@@ -14,7 +14,7 @@ graph TD
     
     subgraph "LangGraph Agents"
         Analyzer[Analyzer Agent]
-        AST[AST Parser (ast_utils)] -->|Line Numbers| Analyzer
+        AST["AST Parser (ast_utils)"] -->|Line Numbers| Analyzer
         Implementer[Implementer Agent]
         Validator[Validator Agent]
     end
