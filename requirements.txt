@@ -7,3 +7,4 @@ langchain_openai==1.1.1
 IPython==9.5.0
 langgraph==1.0.5
 joblib==1.5.3
+pycparser==2.22
