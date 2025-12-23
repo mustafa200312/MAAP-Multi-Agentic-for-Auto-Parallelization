@@ -32,10 +32,86 @@ except ImportError as e:
     logger.error(f"Failed to import workflow: {e}")
     sys.exit(1)
 
+# Supported languages and their file extensions
+LANGUAGE_EXTENSIONS = {
+    ".py": "python",
+    ".c": "c",
+    ".h": "c",  # Header files treated as C
+}
+
+
+def detect_language(file_path: str) -> str:
+    """
+    Detect the programming language based on file extension.
+    
+    Args:
+        file_path: Path to the source file
+        
+    Returns:
+        Language identifier ('python' or 'c')
+        
+    Raises:
+        ValueError: If the file extension is not supported
+    """
+    _, ext = os.path.splitext(file_path)
+    ext = ext.lower()
+    
+    if ext not in LANGUAGE_EXTENSIONS:
+        supported = ", ".join(LANGUAGE_EXTENSIONS.keys())
+        raise ValueError(f"Unsupported file extension '{ext}'. Supported: {supported}")
+    
+    return LANGUAGE_EXTENSIONS[ext]
+
+
+def get_output_path(input_path: str, language: str, custom_output: str = None) -> str:
+    """
+    Generate the output file path based on input and language.
+    
+    Args:
+        input_path: Original input file path
+        language: Detected language
+        custom_output: Custom output path (optional)
+        
+    Returns:
+        Output file path
+    """
+    if custom_output:
+        return custom_output
+    
+    base, ext = os.path.splitext(input_path)
+    
+    if language == "c":
+        return f"{base}_parallel{ext}"
+    else:
+        return f"{base}_optimized{ext}"
+
+
+def get_temp_dir(language: str) -> str:
+    """Get the appropriate temp directory based on language."""
+    if language == "c":
+        return "temp_env_c"
+    return "temp_env"
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Auto-Parallelization Agent System")
-    parser.add_argument("input_file", help="Path to the Python file to optimize")
-    parser.add_argument("--output", "-o", help="Path to save the optimized code. Defaults to <input>_optimized.py", default=None)
+    parser = argparse.ArgumentParser(
+        description="Auto-Parallelization Agent System - Supports Python (joblib) and C (OpenMP)"
+    )
+    parser.add_argument(
+        "input_file", 
+        help="Path to the source file to optimize (.py for Python, .c for C)"
+    )
+    parser.add_argument(
+        "--output", "-o", 
+        help="Path to save the optimized code. Defaults to <input>_optimized.py or <input>_parallel.c",
+        default=None
+    )
+    parser.add_argument(
+        "--language", "-l",
+        choices=["python", "c"],
+        help="Force language (auto-detected from extension if not specified)",
+        default=None
+    )
     
     args = parser.parse_args()
     file_path = args.input_file
@@ -44,12 +120,20 @@ def main():
         logger.error(f"Input file not found: {file_path}")
         sys.exit(1)
 
+    # Detect or use specified language
+    try:
+        if args.language:
+            language = args.language
+            logger.info(f"Using specified language: {language}")
+        else:
+            language = detect_language(file_path)
+            logger.info(f"Detected language: {language}")
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
     # Determine output file
-    if args.output:
-        output_path = args.output
-    else:
-        base, ext = os.path.splitext(file_path)
-        output_path = f"{base}_optimized{ext}"
+    output_path = get_output_path(file_path, language, args.output)
 
     logger.info(f"Reading source code from {file_path}...")
     try:
@@ -59,16 +143,22 @@ def main():
         logger.error(f"Failed to read input file: {e}")
         sys.exit(1)
 
-    logger.info("Starting Auto-Parallelization Workflow...")
+    # Language-specific info
+    if language == "c":
+        logger.info("Starting Auto-Parallelization Workflow (C/OpenMP)...")
+        logger.info("Note: Ensure GCC with OpenMP support is installed (gcc -fopenmp)")
+    else:
+        logger.info("Starting Auto-Parallelization Workflow (Python/joblib)...")
     
     initial_state = {
         "source_code": source_code,
+        "language": language,
         "iterations": 0,
         "messages": []
     }
     
     # Create temp environment
-    TEMP_DIR = "temp_env"
+    TEMP_DIR = get_temp_dir(language)
     if os.path.exists(TEMP_DIR):
         shutil.rmtree(TEMP_DIR)
     os.makedirs(TEMP_DIR)
@@ -80,12 +170,17 @@ def main():
             result = app.invoke(initial_state)
         except Exception as e:
             logger.error(f"Workflow execution failed: {e}")
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
         
         logger.info("=== FINAL RESULT ===")
         
         if result.get("is_valid"):
-            logger.info("SUCCESS! Code parallelized and validated.")
+            if language == "c":
+                logger.info("SUCCESS! C code parallelized with OpenMP and validated.")
+            else:
+                logger.info("SUCCESS! Python code parallelized with joblib and validated.")
             
             try:
                 with open(output_path, "w", encoding="utf-8") as f:
@@ -112,10 +207,6 @@ def main():
         if os.path.exists(TEMP_DIR):
             logger.info(f"Cleaning up temporary environment: {TEMP_DIR}")
             try:
-                # shutil.rmtree(TEMP_DIR) 
-                # User asked to "put created files" there AND "automatic deletion".
-                # But sometimes deletion fails on Windows if processes (like the validator) are still holding files.
-                # Adding a small retry or ignore errors might be safer, or just standard rmtree.
                 shutil.rmtree(TEMP_DIR, ignore_errors=True)
             except Exception as e:
                 logger.warning(f"Failed to cleanup temp dir: {e}")
