@@ -1,4 +1,4 @@
-# MAAP (Multi-Agentic for Auto Parallelization) 🚀
+# Auto-Parallelization Multi-Agent System 🚀
 
 An intelligent agentic system that automatically optimizes Python code by identifying slow sequential loops and refactoring them into parallel implementations using `joblib`.
 
