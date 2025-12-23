@@ -1,44 +1,62 @@
 # Auto-Parallelization Multi-Agent System 🚀
 
-An intelligent agentic system that automatically optimizes Python code by identifying slow sequential loops and refactoring them into parallel implementations using `joblib`.
+An intelligent agentic system that automatically optimizes code by identifying slow sequential loops and refactoring them into parallel implementations.
+
+**Supported Languages:**
+- 🐍 **Python** → Parallelized using `joblib`
+- ⚡ **C** → Parallelized using `OpenMP`
 
 ## 🏗️ Architecture
 
-The system uses **LangGraph** to coordinate specialized AI agents and a consistent feedback loop.
+The system uses **LangGraph** to coordinate specialized AI agents with language-specific workflows and a consistent feedback loop.
 
 ```mermaid
 graph TD
     User[User Input File] --> Main[main.py]
-    Main -->|Create| Temp[Temp Environment]
-    Main -->|Source Code| Graph[LangGraph Workflow]
+    Main -->|Detect Language| Router{.py or .c?}
     
-    subgraph "LangGraph Agents"
-        Analyzer[Analyzer Agent]
-        AST["AST Parser (ast_utils)"] -->|Line Numbers| Analyzer
-        Implementer[Implementer Agent]
-        Validator[Validator Agent]
+    Router -->|Python| PyWorkflow[Python Workflow]
+    Router -->|C| CWorkflow[C Workflow]
+    
+    subgraph "Python Workflow (joblib)"
+        PyAST["AST Parser"] --> PyAnalyzer[Analyzer Agent]
+        PyAnalyzer --> PyImpl[Implementer Agent]
+        PyImpl --> PyVal[Validator Agent]
+        PyVal -->|Run Python| PyCheck{Valid?}
+        PyCheck -->|No| PyImpl
+        PyCheck -->|Yes| PyOut[Save _optimized.py]
     end
     
-    Graph -->|Step 1| AST
-    Analyzer -->|Analysis Report| Implementer
-    Implementer -->|Refactored Code| Validator
-    
-    Validator -->|Generate & Run Script| Temp
-    Temp -->|Validation Result| Router{Valid?}
-    
-    Router -->|Yes| Success[Save Output]
-    Router -->|No| Implementer
+    subgraph "C Workflow (OpenMP)"
+        CAST["C AST Parser"] --> CAnalyzer[C Analyzer Agent]
+        CAnalyzer --> CImpl[C Implementer Agent]
+        CImpl --> CVal[C Validator Agent]
+        CVal -->|Compile & Run| CCheck{Valid?}
+        CCheck -->|No| CImpl
+        CCheck -->|Yes| COut[Save _parallel.c]
+    end
 ```
 
 ## ✨ Features
 
--   **Static Analysis (AST)**: Mathematically precise identification of loops and variables before the AI even sees the code.
--   **Multi-Agent Workflow**:
-    -   🕵️ **Analyzer**: Combines AST data with LLM reasoning to find parallelizable bottlenecks.
-    -   👷 **Implementer**: Refactors code using standard libraries (`joblib`).
-    -   ✅ **Validator**: Writes custom test scripts to verify correctness (Output A == Output B) and speedup.
--   **Safe Execution**: Runs validation in a temporary sandbox (`temp_env`) that is automatically cleaned up.
+### Common Features
+-   **Static Analysis (AST)**: Mathematically precise identification of loops and variables before the AI sees the code.
+-   **Multi-Agent Workflow**: Analyzer → Implementer → Validator pipeline with retry loops.
+-   **Safe Execution**: Runs validation in temporary sandboxes that are automatically cleaned up.
 -   **No Hallucinations**: Code is strictly validated by execution, not just by "looking valid".
+
+### Python-Specific
+-   🕵️ **Analyzer**: Uses Python `ast` module + LLM reasoning to find parallelizable loops.
+-   👷 **Implementer**: Refactors using `joblib.Parallel` and `delayed`.
+-   ✅ **Validator**: Generates Python test scripts to verify output correctness and speedup.
+
+### C-Specific (OpenMP)
+-   🕵️ **Analyzer**: Uses `pycparser` for C AST analysis, detects data dependencies, reduction patterns.
+-   👷 **Implementer**: Adds `#pragma omp parallel for` with appropriate clauses:
+    - `reduction()` for accumulation patterns
+    - `private()` / `shared()` for variable scoping
+    - `schedule()` for load balancing
+-   ✅ **Validator**: Compiles with `gcc -fopenmp`, runs both versions, compares outputs.
 
 ## 🚀 Getting Started
 
@@ -46,6 +64,7 @@ graph TD
 
 -   Python 3.10+
 -   Azure OpenAI API Key (or compatible LLM config)
+-   **For C support**: GCC with OpenMP support (`gcc -fopenmp`)
 
 ### Installation
 
@@ -62,15 +81,61 @@ graph TD
     AZURE_OPENAI_API_KEY=...
     ```
 
+4.  **(For C support)** Ensure GCC with OpenMP is installed:
+    ```bash
+    # Ubuntu/Debian
+    sudo apt install gcc
+    
+    # macOS (with Homebrew)
+    brew install gcc
+    
+    # Windows (MinGW-w64 or WSL recommended)
+    # Download from: https://winlibs.com/
+    ```
+
 ## 💻 Usage
 
-Run the main script with your target Python file:
+### Python Files
 
 ```bash
+# Auto-detect language from extension
 python main.py path/to/your_script.py
+
+# Specify custom output
+python main.py script.py -o optimized_script.py
 ```
 
-### Example
+### C Files
+
+```bash
+# Auto-detect language from extension
+python main.py path/to/program.c
+
+# Specify custom output
+python main.py program.c -o program_omp.c
+
+# Force language (for non-standard extensions)
+python main.py code.txt --language c
+```
+
+### CLI Options
+
+```
+usage: main.py [-h] [--output OUTPUT] [--language {python,c}] input_file
+
+positional arguments:
+  input_file            Path to the source file (.py for Python, .c for C)
+
+optional arguments:
+  -h, --help            Show this help message and exit
+  --output, -o OUTPUT   Path to save the optimized code
+  --language, -l {python,c}
+                        Force language (auto-detected from extension if not specified)
+```
+
+## 📝 Examples
+
+### Python Example
 
 **Input (`workload.py`)**:
 ```python
@@ -88,13 +153,98 @@ def main():
     results = Parallel(n_jobs=-1)(delayed(slow_function)(i) for i in range(10))
 ```
 
+### C Example
+
+**Input (`sum_array.c`)**:
+```c
+#include <stdio.h>
+
+int main() {
+    int arr[1000];
+    int sum = 0;
+    
+    for (int i = 0; i < 1000; i++) {
+        arr[i] = i;
+    }
+    
+    for (int i = 0; i < 1000; i++) {
+        sum += arr[i];
+    }
+    
+    printf("Sum: %d\n", sum);
+    return 0;
+}
+```
+
+**Output (`sum_array_parallel.c`)**:
+```c
+#include <stdio.h>
+#include <omp.h>
+
+int main() {
+    int arr[1000];
+    int sum = 0;
+    
+    #pragma omp parallel for
+    for (int i = 0; i < 1000; i++) {
+        arr[i] = i;
+    }
+    
+    #pragma omp parallel for reduction(+:sum)
+    for (int i = 0; i < 1000; i++) {
+        sum += arr[i];
+    }
+    
+    printf("Sum: %d\n", sum);
+    return 0;
+}
+```
+
+**Compile and run**:
+```bash
+gcc -fopenmp -o sum_parallel sum_array_parallel.c
+./sum_parallel
+```
+
 ## 📂 Project Structure
 
--   `main.py`: CLI entry point. Manages file I/O and lifecycle.
--   `graphs/workflow.py`: The LangGraph state machine definition.
--   `agents/`:
-    -   `analyser.py`: Identifies loops.
-    -   `implementer.py`: Writes parallel code.
-    -   `validator.py`: Writes test scripts.
-    -   `ast_utils.py`: Python AST walker utility.
--   `temp_env/`: (Ephemeral) Created during runtime for isolated testing.
+```
+MAAP/
+├── main.py                 # CLI entry point with language detection
+├── graphs/
+│   └── workflow.py         # LangGraph state machine with dual workflows
+├── agents/
+│   ├── analyser.py         # Python loop analyzer
+│   ├── implementer.py      # Python joblib implementer
+│   ├── validator.py        # Python validation script generator
+│   ├── ast_utils.py        # Python AST walker utility
+│   ├── c_analyser.py       # C loop analyzer (OpenMP-focused)
+│   ├── c_implementer.py    # C OpenMP pragma implementer
+│   ├── c_validator.py      # C compilation & validation generator
+│   └── c_ast_utils.py      # C AST parser using pycparser
+├── LLMs/
+│   └── azure_models.py     # LLM configuration
+├── temp_env/               # (Ephemeral) Python validation sandbox
+├── temp_env_c/             # (Ephemeral) C compilation sandbox
+└── requirements.txt
+```
+
+## 🔧 Requirements
+
+| Dependency | Purpose |
+|------------|---------|
+| `langchain` | LLM chain orchestration |
+| `langgraph` | Stateful agent workflow graphs |
+| `pycparser` | C code AST parsing |
+| `joblib` | Python parallel execution |
+| `python-dotenv` | Environment variable loading |
+
+## ⚠️ Limitations
+
+- **C Preprocessing**: `pycparser` requires preprocessed C code. Complex `#include` chains may need manual preprocessing with `gcc -E`.
+- **OpenMP Support**: The target system must have GCC/Clang with OpenMP support installed.
+- **Data Dependencies**: The AI attempts to detect dependencies, but complex pointer aliasing in C may be missed.
+
+## 📄 License
+
+MIT License - See LICENSE file for details.

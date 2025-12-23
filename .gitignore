@@ -2,3 +2,7 @@
 .venv/
 test/*
 __pycache__/
+temp_env/
+temp_env_c/
+*_optimized.py
+*_parallel.c

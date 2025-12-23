@@ -24,7 +24,7 @@ Follow these guidelines strictly:
 2. **Parallel For Loops**: For parallelizable loops, add appropriate pragmas:
    ```c
    #pragma omp parallel for [clauses]
-   for (int i = 0; i < n; i++) { ... }
+   for (int i = 0; i < n; i++) {{ ... }}
    ```
 
 3. **Reduction Clauses**: For accumulation patterns, use reduction:

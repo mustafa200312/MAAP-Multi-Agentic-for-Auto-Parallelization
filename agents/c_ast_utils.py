@@ -22,8 +22,25 @@ def preprocess_c_code(source_code: str) -> str:
     # Remove multi-line comments
     code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
     
-    # Remove #include directives (pycparser can't handle these)
-    code = re.sub(r'^\s*#include\s*[<"].*?[>"]\s*$', '', code, flags=re.MULTILINE)
+    # Simple macro expansion for object-like macros: #define KEY VALUE
+    # This is a heuristic to handle simple constants like SIZE
+    macros = {}
+    macro_pattern = r'^\s*#define\s+(\w+)\s+(.+?)\s*$'
+    for match in re.finditer(macro_pattern, code, flags=re.MULTILINE):
+        name, value = match.groups()
+        # Avoid function-like macros
+        if '(' not in name:
+            macros[name] = value.strip()
+            
+    # Apply macros (descending length order to avoid substring issues)
+    # This is very basic and doesn't handle scope or complex things, but helps with simple loops
+    for name in sorted(macros.keys(), key=len, reverse=True):
+        # Use word boundaries to replace
+        code = re.sub(r'\b' + re.escape(name) + r'\b', macros[name], code)
+
+    # Remove #include and other preprocessor directives (pycparser can't handle them)
+    # Remove any line starting with #
+    code = re.sub(r'^\s*#.*?$', '', code, flags=re.MULTILINE)
     
     return code
 
