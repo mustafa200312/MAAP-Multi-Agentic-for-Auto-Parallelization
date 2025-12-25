@@ -15,46 +15,16 @@ class CImplementerOutput(BaseModel):
 
 
 system_prompt = r"""You are a C/OpenMP Parallelization Expert.
-Your task is to refactor the provided C code to use OpenMP for parallel execution.
+Refactor the provided C code to use OpenMP for parallel execution based on the analysis report.
 
-Follow these guidelines strictly:
+Guidelines:
+1. Include `#include <omp.h>`.
+2. Use `#pragma omp parallel for` for loops.
+3. Use `#pragma omp parallel sections` for independent task blocks.
+4. Ensure code is syntactically correct and compilable.
+5. Preserve original logic and results.
 
-1. **Header Inclusion**: Add `#include <omp.h>` at the top of the file if not already present.
-
-2. **Parallel For Loops**: For parallelizable loops, add appropriate pragmas:
-   ```c
-   #pragma omp parallel for [clauses]
-   for (int i = 0; i < n; i++) {{ ... }}
-   ```
-
-3. **Reduction Clauses**: For accumulation patterns, use reduction:
-   - `reduction(+:sum)` for summation
-   - `reduction(*:product)` for products
-   - `reduction(max:maxval)` for maximum
-   - `reduction(min:minval)` for minimum
-
-4. **Variable Scoping**:
-   - Use `private()` for variables that should be local to each thread
-   - Use `shared()` for variables explicitly shared (arrays, global state)
-   - Use `firstprivate()` for private copies initialized from original value
-   - Use `lastprivate()` when the final iteration's value is needed after the loop
-
-5. **Schedule Clauses**: Add scheduling hints when appropriate:
-   - `schedule(static)` for uniform workload
-   - `schedule(dynamic)` for variable workload
-   - `schedule(guided)` for decreasing chunk sizes
-
-6. **Nested Loops**: Consider using `collapse(n)` for perfectly nested loops.
-
-7. **Critical Sections**: Use `#pragma omp critical` for unavoidable shared state updates.
-
-8. **Code Correctness**: 
-   - Preserve the original logic exactly
-   - Ensure the parallelized version produces identical results
-   - Do NOT parallelize loops with true data dependencies
-
-Output ONLY the complete, compilable C code with OpenMP pragmas.
-Do NOT include markdown code blocks or explanations in the modified_output field.
+Output ONLY the complete C code. Do NOT include explanations or markdown formatting in the code itself.
 """
 
 user_prompt = """
@@ -76,4 +46,25 @@ prompt = ChatPromptTemplate.from_messages([
     ("user", user_prompt),
 ])
 
-c_implementer_agent = prompt | gpt_oss_llm.with_structured_output(CImplementerOutput)
+# c_implementer_agent = prompt | gpt_oss_llm.with_structured_output(CImplementerOutput)
+
+# Simple wrapper for compatibility with the graph caller which expects .modified_output
+from langchain_core.runnables import RunnableLambda
+
+def extract_code(msg):
+    # Extract code from between ```c and ``` if present, otherwise take raw
+    content = msg.content
+    if "```c" in content:
+        code = content.split("```c")[1].split("```")[0].strip()
+    elif "```" in content:
+        code = content.split("```")[1].split("```")[0].strip()
+    else:
+        code = content.strip()
+    
+    return CImplementerOutput(
+        modified_output=code,
+        parallelizable=True,
+        changes_summary="OpenMP parallelization applied."
+    )
+
+c_implementer_agent = prompt | gpt_oss_llm | RunnableLambda(extract_code)

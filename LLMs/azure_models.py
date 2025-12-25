@@ -1,11 +1,14 @@
-from langchain_openai import AzureChatOpenAI
+from langchain_mistralai import ChatMistralAI
 import os
+from dotenv import load_dotenv
 
-gpt_oss_llm = AzureChatOpenAI(
-    azure_deployment=os.getenv("GPT_OSS_DEPLOYMENT_NAME"),
-    openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    timeout=300,
+load_dotenv()
+
+llm = ChatMistralAI(
+    model=os.getenv("model"), 
+    api_key=os.getenv("api_key"),
     max_retries=3,
+    timeout=300
 )
+
+gpt_oss_llm = llm

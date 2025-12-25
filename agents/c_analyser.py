@@ -9,31 +9,17 @@ from pydantic import Field, BaseModel
 
 
 class CAnalyzerOutput(BaseModel):
-    output: str = Field(..., description="Detailed analysis of parallelization opportunities in the C code.")
+    output: str = Field(..., description="Detailed analysis of parallelization opportunities (loops and sections) in the C code.")
     parallelizable_loops: int = Field(..., description="Number of loops that can be parallelized.")
+    parallelizable_sections: int = Field(False, description="Number of independent sections groups that can be parallelized.")
 
 
-system_prompt = r"""You are an expert C Code Analyzer specializing in OpenMP parallelization.
-Your goal is to identify for-loops and potentially parallelizable sections in the provided C code.
+system_prompt = r"""You are an expert C Code Analyzer for OpenMP.
+Identify parallelization opportunities in C code:
+1. **Data Parallelism**: `for` loops.
+2. **Task Parallelism**: Independent code blocks (`parallel sections`).
 
-For each loop, analyze:
-1. Loop bounds and iteration pattern (is it countable/predictable?).
-2. Data dependencies between iterations:
-   - Read-after-write (RAW) dependencies
-   - Write-after-read (WAR) dependencies  
-   - Write-after-write (WAW) dependencies
-3. Reduction operations (sum, product, min, max, etc.).
-4. Variables that should be private vs shared.
-5. Array access patterns (are indices independent?).
-6. Function calls within the loop (are they thread-safe?).
-
-OpenMP-specific considerations:
-- Identify loops suitable for `#pragma omp parallel for`
-- Suggest appropriate clauses: `reduction()`, `private()`, `shared()`, `schedule()`
-- Flag potential race conditions or data dependencies that prevent parallelization
-- Consider loop nesting and whether to use `collapse()` clause
-
-Output your findings in a structured format with specific recommendations.
+For each, analyze dependencies and suggest appropriate OpenMP pragmas.
 """
 
 user_prompt = """
@@ -54,4 +40,22 @@ prompt = ChatPromptTemplate.from_messages([
     ("user", user_prompt),
 ])
 
-c_dependencies_detector_agent = prompt | gpt_oss_llm.with_structured_output(CAnalyzerOutput)
+# c_dependencies_detector_agent = prompt | gpt_oss_llm.with_structured_output(CAnalyzerOutput)
+
+from langchain_core.runnables import RunnableLambda
+
+def extract_analysis(msg):
+    # Extract loops and sections count from the text if possible, else default to 0
+    content = msg.content
+    
+    # Simple heuristic to find counts in the text
+    loops = content.count("#pragma omp parallel for")
+    sections = content.count("#pragma omp parallel sections")
+    
+    return CAnalyzerOutput(
+        output=content,
+        parallelizable_loops=loops,
+        parallelizable_sections=sections
+    )
+
+c_dependencies_detector_agent = prompt | gpt_oss_llm | RunnableLambda(extract_analysis)

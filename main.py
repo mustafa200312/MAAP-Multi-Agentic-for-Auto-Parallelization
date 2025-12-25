@@ -19,7 +19,8 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 load_dotenv()
 
 # Check environment variables
-REQUIRED_VARS = ["GPT_OSS_DEPLOYMENT_NAME", "AZURE_OPENAI_API_VERSION", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY"]
+# Check environment variables
+REQUIRED_VARS = ["model", "api_key"]
 missing = [v for v in REQUIRED_VARS if not os.getenv(v)]
 if missing:
     logger.error(f"Missing environment variables: {missing}")
@@ -190,7 +191,23 @@ def main():
                 logger.error(f"Failed to save optimized code: {e}")
                 
             print("\n--- Validation Output ---")
-            print(result.get("validation_output", "No output captured."))
+            validation_output = result.get("validation_output", "No output captured.")
+            print(validation_output)
+
+            # Performance Report Parsing
+            import re
+            import json
+            metrics_match = re.search(r'METRICS: ({.*?})', validation_output)
+            if metrics_match:
+                try:
+                    metrics = json.loads(metrics_match.group(1))
+                    print("\n=== PERFORMANCE REPORT ===")
+                    print(f"Original Time: {metrics.get('original_time', 0):.4f}s")
+                    print(f"Parallel Time: {metrics.get('parallel_time', 0):.4f}s")
+                    print(f"Speedup:      {metrics.get('speedup', 0):.2f}x")
+                    print("==========================")
+                except Exception as e:
+                    logger.warning(f"Failed to parse performance metrics: {e}")
         else:
             logger.warning("FAILED to verify parallelization.")
             logger.warning("Last Validation Output:")

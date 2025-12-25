@@ -207,11 +207,16 @@ def analyze_c_code_ast(source_code: str) -> str:
     visitor = CLoopVisitor()
     visitor.visit(ast)
     
-    if not visitor.loops:
-        return "No 'for' loops found in the C code by static analysis."
+    section_visitor = SectionVisitor()
+    section_visitor.visit(ast)
+    
+    if not visitor.loops and not section_visitor.sections:
+        return "No parallelizable loops or sections found."
     
     report = "=== C AST Static Analysis Report ===\n\n"
-    report += f"Found {len(visitor.loops)} for-loop(s):\n\n"
+    
+    if visitor.loops:
+        report += f"Found {len(visitor.loops)} for-loop(s):\n\n"
     
     for i, loop in enumerate(visitor.loops, 1):
         report += f"--- Loop {i} ---\n"
@@ -258,5 +263,157 @@ def analyze_c_code_ast(source_code: str) -> str:
             pragma += f" private({', '.join(loop['potential_private_vars'])})"
         
         report += pragma + "\n\n"
+        
+    if section_visitor.sections:
+        report += f"Found {len(section_visitor.sections)} potential Parallel Sections:\n\n"
+        for i, sec in enumerate(section_visitor.sections, 1):
+             report += f"--- Section Group {i} ---\n"
+             report += f"  Lines: {sec['start_line']} to {sec['end_line']}\n"
+             report += f"  Independent Statements: {sec['count']}\n"
+             report += "  Suggested OpenMP pragma:\n"
+             report += "    #pragma omp parallel sections\n"
+             report += "    {\n"
+             report += "        #pragma omp section\n"
+             report += "        ...\n"
+             report += "    }\n\n"
     
     return report
+
+class VariableUsageVisitor(c_ast.NodeVisitor):
+    """
+    Analyzes variable usage in a code block/statement.
+    """
+    def __init__(self):
+        self.read = set()
+        self.written = set()
+        self.func_calls = set()
+        
+    def visit_Assignment(self, node):
+        # LHS is written
+        self._analyze_lvalue(node.lvalue)
+        # RHS is read
+        self.visit(node.rvalue)
+        
+    def visit_UnaryOp(self, node):
+        # Handle ++ and --
+        if node.op in ['p++', 'p--', '++p', '--p']:
+            self._analyze_lvalue(node.expr)
+            self.visit(node.expr) # It is also read
+        else:
+            self.generic_visit(node)
+
+    def _analyze_lvalue(self, node):
+        if isinstance(node, c_ast.ID):
+            self.written.add(node.name)
+        elif isinstance(node, c_ast.ArrayRef):
+            self.visit(node.subscript) # Index is read
+            self.visit(node.name) # Array ptr is read 
+            # Treat array as written
+            if isinstance(node.name, c_ast.ID):
+                 self.written.add(node.name.name)
+        elif isinstance(node, c_ast.StructRef):
+            self.visit(node.name)
+            # Struct field write? Treat struct as written for safety
+            
+    def visit_ID(self, node):
+        self.read.add(node.name)
+        
+    def visit_FuncCall(self, node):
+        if isinstance(node.name, c_ast.ID):
+            self.func_calls.add(node.name.name)
+        if node.args:
+            self.visit(node.args)
+
+class SectionVisitor(c_ast.NodeVisitor):
+    """
+    Finds sequences of independent statements (candidate for OpenMP Sections).
+    """
+    def __init__(self):
+        self.sections = [] # List of {start_line, end_line, statements}
+        
+    def visit_Compound(self, node):
+        # A Compound block (like { ... }) contains a list of statements
+        if not node.block_items:
+            return
+
+        current_batch = []
+        
+        for stmt in node.block_items:
+            usage = VariableUsageVisitor()
+            usage.visit(stmt)
+            
+            stmt_info = {
+                'stmt': stmt,
+                'read': usage.read,
+                'written': usage.written,
+                'calls': usage.func_calls,
+                'line': stmt.coord.line if stmt.coord else -1
+            }
+            current_batch.append(stmt_info)
+            
+        # Analyze current_batch for independent groups
+        # We look for adjacent statements that are independent.
+        # Simple heuristic: If S1 and S2 are independent, group them.
+        
+        i = 0
+        while i < len(current_batch) - 1:
+            # Try to find a group starting at i
+            group = [current_batch[i]]
+            combined_read = set(current_batch[i]['read'])
+            combined_written = set(current_batch[i]['written'])
+            
+            j = i + 1
+            while j < len(current_batch):
+                next_stmt = current_batch[j]
+                
+                # Check dependency with ALL statements currently in the group
+                # Actually, for Sections, we want:
+                #    #pragma omp parallel sections
+                #    {
+                #       #pragma omp section
+                #       stmt1;
+                #       #pragma omp section
+                #       stmt2;
+                #    }
+                # This requires stmt1 and stmt2 to be independent.
+                # If we have stmt1, stmt2, stmt3...
+                # We need ANY pair (stmt_a, stmt_b) in different sections to be independent?
+                # No, standard OpenMP sections run concurrently. So ALL sections must be independent of EACH OTHER.
+                
+                # Check if next_stmt is independent of everything in the current group
+                is_independent = True
+                
+                # RAW: Write in Group -> Read in Next
+                if not combined_written.isdisjoint(next_stmt['read']):
+                    is_independent = False
+                # WAR: Read in Group -> Write in Next
+                elif not combined_read.isdisjoint(next_stmt['written']):
+                    is_independent = False
+                # WAW: Write in Group -> Write in Next
+                elif not combined_written.isdisjoint(next_stmt['written']):
+                    is_independent = False
+                    
+                if is_independent:
+                    group.append(next_stmt)
+                    combined_read.update(next_stmt['read'])
+                    combined_written.update(next_stmt['written'])
+                    j += 1
+                else:
+                    break
+            
+            if len(group) > 1:
+                # Found a potential parallel section group!
+                # Filter trivial statements (like just 'int i;') if needed, but for now keep all.
+                # Only keep if they involve some computation (writes or func calls)
+                meaningful = [s for s in group if s['written'] or s['calls']]
+                if len(meaningful) > 1:
+                    self.sections.append({
+                        'start_line': group[0]['line'],
+                        'end_line': group[-1]['line'],
+                        'count': len(group)
+                    })
+                i = j 
+            else:
+                i += 1
+                
+        self.generic_visit(node)
