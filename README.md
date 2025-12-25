@@ -1,100 +1,96 @@
-# MAAP (Multi-Agentic for Auto Parallelization) 🚀
+# MAAP: Multi-Agentic for Auto Parallelization
 
-An intelligent agentic system that automatically optimizes Python code by identifying slow sequential loops and refactoring them into parallel implementations using `joblib`.
+MAAP is an intelligent system that automatically parallelizes Python code using specialized AI agents. It identifies CPU-bound loops, independent task graphs, and vectorizable operations, then refactors the code to use **ProcessPoolExecutor**, **ThreadPoolExecutor**, or **joblib**.
 
-## 🏗️ Architecture
+## 🚀 Key Features
 
-The system uses **LangGraph** to coordinate specialized AI agents and a consistent feedback loop.
+1.  **Smart Analysis**: Detects parallelizable patterns:
+    *   **Loop Map**: Independent iterations (CPU-bound).
+    *   **Task Graph**: Independent function calls.
+    *   **Vectorization**: Numeric loops convertible to NumPy.
+    *   **Reduction**: Accumulation loops (experimental support).
+2.  **Auto-Refactoring**: Implements robust parallel backends:
+    *   **Processes**: For CPU-heavy work (bypasses GIL).
+    *   **Threads**: For I/O-bound work.
+3.  **Agentic Validation**: Automatically generates a test script to verify **Correctness** and report **Speedup**.
+4.  **Structured Output**: detailed reports and artifacts saved to `output/<filename>/`.
 
-```mermaid
-graph TD
-    User[User Input File] --> Main[main.py]
-    Main -->|Create| Temp[Temp Environment]
-    Main -->|Source Code| Graph[LangGraph Workflow]
-    
-    subgraph "LangGraph Agents"
-        Analyzer[Analyzer Agent]
-        AST["AST Parser (ast_utils)"] -->|Line Numbers| Analyzer
-        Implementer[Implementer Agent]
-        Validator[Validator Agent]
-    end
-    
-    Graph -->|Step 1| AST
-    Analyzer -->|Analysis Report| Implementer
-    Implementer -->|Refactored Code| Validator
-    
-    Validator -->|Generate & Run Script| Temp
-    Temp -->|Validation Result| Router{Valid?}
-    
-    Router -->|Yes| Success[Save Output]
-    Router -->|No| Implementer
-```
-
-## ✨ Features
-
--   **Static Analysis (AST)**: Mathematically precise identification of loops and variables before the AI even sees the code.
--   **Multi-Agent Workflow**:
-    -   🕵️ **Analyzer**: Combines AST data with LLM reasoning to find parallelizable bottlenecks.
-    -   👷 **Implementer**: Refactors code using standard libraries (`joblib`).
-    -   ✅ **Validator**: Writes custom test scripts to verify correctness (Output A == Output B) and speedup.
--   **Safe Execution**: Runs validation in a temporary sandbox (`temp_env`) that is automatically cleaned up.
--   **No Hallucinations**: Code is strictly validated by execution, not just by "looking valid".
-
-## 🚀 Getting Started
-
-### Prerequisites
-
--   Python 3.10+
--   Azure OpenAI API Key (or compatible LLM config)
-
-### Installation
-
-1.  Clone the repository.
-2.  Install dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  Configure your environment variables in `.env`:
-    ```ini
-    GPT_OSS_DEPLOYMENT_NAME=gpt-4o
-    AZURE_OPENAI_API_VERSION=...
-    AZURE_OPENAI_ENDPOINT=...
-    AZURE_OPENAI_API_KEY=...
-    ```
-
-## 💻 Usage
-
-Run the main script with your target Python file:
+## 📦 Installation
 
 ```bash
-python main.py path/to/your_script.py
+# Clone repository
+git clone https://github.com/mustafa200312/MultiAgentic_for_AutoPara.git
+cd MultiAgentic_for_AutoPara
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+
+# Install dependencies
+pip install langgraph langchain langchain-mistralai pydantic joblib python-dotenv
 ```
 
-### Example
+## ⚙️ Configuration
 
-**Input (`workload.py`)**:
-```python
-def main():
-    results = []
-    for i in range(10):
-        results.append(slow_function(i))
+Create a `.env` file in the project root:
+
+```ini
+MISTRAL_API_KEY=your_mistral_api_key_here
 ```
 
-**Output (`workload_optimized.py`)**:
-```python
-from joblib import Parallel, delayed
+## 🛠️ Usage
 
-def main():
-    results = Parallel(n_jobs=-1)(delayed(slow_function)(i) for i in range(10))
+Let the Agent automatically analyze, optimize, and create a validation test for your script:
+
+```bash
+python main.py demo_workload.py
 ```
 
-## 📂 Project Structure
+**Results in `output/demo_workload/`**:
+*   `optimized.py`: Parallelized code.
+*   `report.txt`: Validation log (Time, Speedup, Correctness).
+*   `validation_script.py`: The generated test harness.
 
--   `main.py`: CLI entry point. Manages file I/O and lifecycle.
--   `graphs/workflow.py`: The LangGraph state machine definition.
--   `agents/`:
-    -   `analyser.py`: Identifies loops.
-    -   `implementer.py`: Writes parallel code.
-    -   `validator.py`: Writes test scripts.
-    -   `ast_utils.py`: Python AST walker utility.
--   `temp_env/`: (Ephemeral) Created during runtime for isolated testing.
+## 🧠 System Architecture
+
+The system uses a **LangGraph** workflow with three primary agents:
+
+1.  **Analyzer Agent**:
+    *   Inputs: Source Code + AST Analysis.
+    *   Output: List of `Candidates` (Line ranges, Types, Parallelizability).
+2.  **Implementer Agent**:
+    *   Inputs: Source Code + Candidates.
+    *   Output: Refactored Code using `joblib` or `concurrent.futures`.
+6.  **Validator Agent**:
+    *   Inputs: Original vs. Refactored Code.
+    *   Output: Python script that measures execution time and asserts output equality.
+
+## 🎯 Supported Patterns
+
+MAAP optimizes the following code patterns:
+
+1.  **CPU-Bound Loops (`loop_map`)**
+    *   *Detection*: Loops performing heavy calculations (math, image processing) on independent items.
+    *   *Optimization*: Distributed across CPU cores using `joblib` (Process Backend).
+    *   *Benefit*: Bypasses Python's GIL for true parallelism.
+
+2.  **I/O-Bound Loops (`io_batch`)**
+    *   *Detection*: Loops waiting on network requests, file I/O, or database queries.
+    *   *Optimization*: Concurrently executed using `ThreadPoolExecutor`.
+    *   *Benefit*: Drastically reduces wait time by overlapping operations.
+
+3.  **Task Graphs (`task_graph`)**
+    *   *Detection*: Independent function calls that don't rely on each other's immediate output.
+    *   *Optimization*: Scheduled as concurrent futures.
+    *   *Benefit*: Runs distinct stages of your pipeline at the same time.
+
+4.  **Vectorization (`vectorize`)**
+    *   *Detection*: Element-wise operations on lists/arrays.
+    *   *Optimization*: Suggests or implements NumPy/Numba replacements (if dependencies allow).
+
+
+## ⚠️ Known Limitations
+
+*   **Complex Reductions**: Loops that accumulate state (e.g., `total += ...`) are detected but parallelization complexity often causes validation failures.
+*   **Global State**: Code relying on `global` variables modification inside loops is not supported (ProcessPools cannot share globals easily).
+*   **Nested Classes**: Parallelizing methods inside nested classes can sometimes fail pickling.

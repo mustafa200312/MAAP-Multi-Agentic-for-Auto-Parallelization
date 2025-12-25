@@ -1,4 +1,4 @@
-from LLMs.azure_models import gpt_oss_llm
+from LLMs.llms import llm
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import Field, BaseModel
 
@@ -29,4 +29,4 @@ prompt = ChatPromptTemplate.from_messages([
     ("user", user_prompt),
 ])
 
-orchestrator_agent = prompt | gpt_oss_llm.with_structured_output(output_model)
+orchestrator_agent = prompt | llm.with_structured_output(output_model)

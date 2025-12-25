@@ -18,12 +18,6 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 # Load env before imports that use it
 load_dotenv()
 
-# Check environment variables
-REQUIRED_VARS = ["GPT_OSS_DEPLOYMENT_NAME", "AZURE_OPENAI_API_VERSION", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY"]
-missing = [v for v in REQUIRED_VARS if not os.getenv(v)]
-if missing:
-    logger.error(f"Missing environment variables: {missing}")
-    sys.exit(1)
 
 # Import graph after env check (in case module loading depends on env)
 try:
@@ -35,7 +29,6 @@ except ImportError as e:
 def main():
     parser = argparse.ArgumentParser(description="MAAP: Multi-Agentic for Auto Parallelization")
     parser.add_argument("input_file", help="Path to the Python file to optimize")
-    parser.add_argument("--output", "-o", help="Path to save the optimized code. Defaults to <input>_optimized.py", default=None)
     
     args = parser.parse_args()
     file_path = args.input_file
@@ -44,12 +37,14 @@ def main():
         logger.error(f"Input file not found: {file_path}")
         sys.exit(1)
 
-    # Determine output file
-    if args.output:
-        output_path = args.output
-    else:
-        base, ext = os.path.splitext(file_path)
-        output_path = f"{base}_optimized{ext}"
+    # Structured Output Directory
+    source_basename = os.path.splitext(os.path.basename(file_path))[0]
+    output_dir = os.path.join("output", source_basename)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    optimized_path = os.path.join(output_dir, "optimized.py")
+    report_path = os.path.join(output_dir, "report.txt")
+    validation_script_path = os.path.join(output_dir, "validation_script.py")
 
     logger.info(f"Reading source code from {file_path}...")
     try:
@@ -63,6 +58,8 @@ def main():
     
     initial_state = {
         "source_code": source_code,
+        "source_filename": source_basename,
+        "output_dir": output_dir,
         "iterations": 0,
         "messages": []
     }
@@ -70,27 +67,41 @@ def main():
     # Create temp environment
     TEMP_DIR = "temp_env"
     if os.path.exists(TEMP_DIR):
-        shutil.rmtree(TEMP_DIR)
+        shutil.rmtree(TEMP_DIR, ignore_errors=True)
     os.makedirs(TEMP_DIR)
     logger.info(f"Created temporary environment at {TEMP_DIR}")
     
     # Run the graph
+    result = {}
     try:
         try:
             result = app.invoke(initial_state)
         except Exception as e:
             logger.error(f"Workflow execution failed: {e}")
-            sys.exit(1)
+            # Ensure we have a result object to write partial logs
+            result = {"validation_output": f"Workflow failed with error: {e}", "is_valid": False}
         
         logger.info("=== FINAL RESULT ===")
+        
+        # Always save validation report
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(result.get("validation_output", "No validation output."))
+        logger.info(f"Validation report saved to '{report_path}'")
+        
+        # Copy generated validation script if exists
+        # It's in temp_env/validate_agentic.py (if agentic)
+        gen_script = os.path.join(TEMP_DIR, "validate_agentic.py")
+        if os.path.exists(gen_script):
+            shutil.copy(gen_script, validation_script_path)
+            logger.info(f"Validation script saved to '{validation_script_path}'")
         
         if result.get("is_valid"):
             logger.info("SUCCESS! Code parallelized and validated.")
             
             try:
-                with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(result["modified_code"])
-                logger.info(f"Modified code saved to '{output_path}'")
+                with open(optimized_path, "w", encoding="utf-8") as f:
+                    f.write(result.get("modified_code", ""))
+                logger.info(f"Optimized code saved to '{optimized_path}'")
             except IOError as e:
                 logger.error(f"Failed to save optimized code: {e}")
                 
@@ -101,24 +112,18 @@ def main():
             logger.warning("Last Validation Output:")
             print(result.get("validation_output", "No output captured."))
             
-            # Optionally save the modified code anyway for inspection
-            failed_output = f"{output_path}.failed"
-            with open(failed_output, "w", encoding="utf-8") as f:
-                 f.write(result.get("modified_code", ""))
-            logger.info(f"Saved unverified code to {failed_output} for inspection.")
+            # Save the modified code anyway for inspection
+            if "modified_code" in result:
+                failed_path = os.path.join(output_dir, "optimized_FAILED.py")
+                with open(failed_path, "w", encoding="utf-8") as f:
+                     f.write(result.get("modified_code", ""))
+                logger.info(f"Saved unverified code to {failed_path} for inspection.")
             
     finally:
-        # Cleanup
+        # Cleanup temp
         if os.path.exists(TEMP_DIR):
             logger.info(f"Cleaning up temporary environment: {TEMP_DIR}")
-            try:
-                # shutil.rmtree(TEMP_DIR) 
-                # User asked to "put created files" there AND "automatic deletion".
-                # But sometimes deletion fails on Windows if processes (like the validator) are still holding files.
-                # Adding a small retry or ignore errors might be safer, or just standard rmtree.
-                shutil.rmtree(TEMP_DIR, ignore_errors=True)
-            except Exception as e:
-                logger.warning(f"Failed to cleanup temp dir: {e}")
+            shutil.rmtree(TEMP_DIR, ignore_errors=True)
 
 if __name__ == "__main__":
     main()
