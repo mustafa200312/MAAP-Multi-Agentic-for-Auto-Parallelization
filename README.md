@@ -87,10 +87,3 @@ MAAP optimizes the following code patterns:
 4.  **Vectorization (`vectorize`)**
     *   *Detection*: Element-wise operations on lists/arrays.
     *   *Optimization*: Suggests or implements NumPy/Numba replacements (if dependencies allow).
-
-
-## ⚠️ Known Limitations
-
-*   **Complex Reductions**: Loops that accumulate state (e.g., `total += ...`) are detected but parallelization complexity often causes validation failures.
-*   **Global State**: Code relying on `global` variables modification inside loops is not supported (ProcessPools cannot share globals easily).
-*   **Nested Classes**: Parallelizing methods inside nested classes can sometimes fail pickling.
