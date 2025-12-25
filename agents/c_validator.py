@@ -21,6 +21,19 @@ Your task is to create a Python validation script that:
 2. Compiles the parallelized C code: `gcc -O2 -fopenmp -o parallel refactored.c -lm`
 3. Runs both and compares outputs.
 
+**CRITICAL: Windows Compatibility**:
+On Windows, executables have `.exe` extension and must be run without `./` prefix.
+Use this pattern to detect OS and set executable paths:
+```python
+import sys
+if sys.platform == "win32":
+    original_exe = "original.exe"
+    parallel_exe = "parallel.exe"
+else:
+    original_exe = "./original"
+    parallel_exe = "./parallel"
+```
+
 **Crucial Logic for Parallelism**:
 Parallel execution (especially `sections` or `tasks`) often changes the order of output lines. 
 The validation script **MUST** treat the output as a collection of lines and verify that the same lines are present in both, OR sort the lines before comparison. 

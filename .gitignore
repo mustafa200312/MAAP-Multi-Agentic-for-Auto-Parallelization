@@ -1,4 +1,6 @@
 .env
 .venv/
 .output/
+.test/
 test/*
+output/*

@@ -37,10 +37,12 @@ def analyzer_node(state: AgentState):
             "source_code": state["source_code"],
             "ast_report": ast_report
         })
-        # Map C result to generic format string (result has fields: output, parallelizable_loops, parallelizable_sections)
-        # Using the agent's 'output' field which contains the text analysis
-        summary_text = result.output
-        formatted_analysis = f"C Analysis Summary (OpenMP):\n{summary_text}\n\nMetrics:\n- Loops: {result.parallelizable_loops}\n- Sections: {result.parallelizable_sections}"
+        # result is CAnalysisOutput (same structure as Python's AnalysisOutput)
+        formatted_analysis = f"C Analysis Summary (OpenMP): {result.summary}\n\nCandidates:\n"
+        for cand in result.candidates:
+            formatted_analysis += f"- [ID: {cand.id}] Type: {cand.type}, Lines: {cand.start_line}-{cand.end_line}, Parallelizable: {cand.parallelizable} ({cand.reason})\n"
+            if cand.recommendation:
+                formatted_analysis += f"  Recommendation: {cand.recommendation}\n"
         
     else:
         # Python Path
@@ -74,10 +76,11 @@ def implementer_node(state: AgentState):
             "source_code": state["source_code"], 
             "analysis_report": state["analysis_report"]
         })
-        # result is CImplementerOutput (modified_output, parallelizable, changes_summary)
+        # result is CImplementerOutput (modified_code, parallelizable, changes)
         print("C Implementer Changes:")
-        print(result.changes_summary)
-        modified_code = result.modified_output
+        for change in result.changes:
+            print(f"  - Lines {change.start_line}-{change.end_line}: Pragma={change.pragma} ({change.note})")
+        modified_code = result.modified_code
     else:
         result = implementer_agent.invoke({
             "source_code": state["source_code"], 

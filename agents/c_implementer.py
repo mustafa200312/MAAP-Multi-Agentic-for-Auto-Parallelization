@@ -1,55 +1,84 @@
 """
 C Code Implementer Agent for OpenMP parallelization.
 Transforms C code to use OpenMP pragmas for parallel execution.
+Uses the same structured output format as the Python implementer.
 """
 
-from LLMs.llms import llm
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import Field, BaseModel
+from LLMs.llms import llm
 
+# Structured change tracking (mirrors Python's AppliedChange)
+class CAppliedChange(BaseModel):
+    start_line: int = Field(..., description="Loop start line modified")
+    end_line: int = Field(..., description="Loop end line modified")
+    pragma: Literal["parallel_for", "parallel_for_reduction", "parallel_sections", "simd"] = Field(
+        ..., description="OpenMP pragma applied"
+    )
+    note: Optional[str] = Field(None, description="Short explanation of what changed")
 
 class CImplementerOutput(BaseModel):
-    modified_output: str = Field(..., description="The complete modified C code with OpenMP pragmas added.")
-    parallelizable: bool = Field(..., description="Indicates if the code was successfully parallelized.")
-    changes_summary: str = Field(..., description="Summary of the OpenMP changes made to the code.")
+    modified_code: str = Field(..., description="Full modified C code after implementation.")
+    parallelizable: bool = Field(..., description="True if any loop was parallelized.")
+    changes: List[CAppliedChange] = Field(default_factory=list, description="List of applied parallelization edits.")
 
 
-system_prompt = r"""You are a C/OpenMP Parallelization Expert.
-Refactor the provided C code to use OpenMP for parallel execution based on the analysis report.
+system_prompt = r"""You are a C/OpenMP Parallelization Implementer.
 
-Implementation Strategies:
-1. **loop_map**: Use `#pragma omp parallel for`.
-   - Handle reductions: `reduction(op:var)`
-   - Ensure `schedule(dynamic)` if workload is uneven.
+Goal:
+Refactor the provided C code to parallelize identified safe candidates using OpenMP pragmas.
 
-2. **task_graph**: Use `#pragma omp parallel sections`.
-   - Wrap independent blocks in `#pragma omp section`.
+Supported Pragmas:
+1. `#pragma omp parallel for` - For independent loop iterations
+2. `#pragma omp parallel for reduction(op:var)` - For accumulator patterns
+3. `#pragma omp parallel sections` - For independent code blocks
+4. `#pragma omp simd` - For SIMD vectorization of inner loops
 
-3. **vectorize**: Use `#pragma omp simd`.
-   - For small inner loops without dependencies.
+You will receive:
+- Original C code
+- An analysis report describing candidates and parallelization guidance
 
-Guidelines:
-1. Include `#include <omp.h>`.
-2. Ensure code is syntactically correct and compilable.
-3. Preserve original logic and results.
-4. **CRITICAL**: Do NOT use `private(...)` clauses. Variables declared inside the loop (like `for(int i=0; ...)` or `double val = ...;`) are automatically private in OpenMP. Adding `private()` for these causes compilation errors.
+Rules:
+1) Only parallelize regions explicitly marked safe/parallelizable in the analysis.
+2) Preserve semantics exactly (same outputs, same order where required).
+3) Implementation Patterns:
+   A. Loop Map:
+      - Add `#pragma omp parallel for` before the for loop.
+      - Do NOT use `private()` for variables declared inside the loop.
+   B. Reduction:
+      - Add `#pragma omp parallel for reduction(+:sum)` for accumulator patterns.
+   C. Task Graph:
+      - Wrap in `#pragma omp parallel sections` with `#pragma omp section` for each block.
+   D. Vectorization:
+      - Add `#pragma omp simd` for inner loops suitable for SIMD.
+4) Always add `#include <omp.h>` at the top.
+5) Safety:
+   - Do NOT use `private()` clauses for loop-local variables.
+   - Variables declared inside the loop are automatically private.
 
-Output ONLY the complete C code. Do NOT include explanations or markdown formatting in the code itself.
+Output requirements:
+- Return the full modified C code.
+- If no safe parallelization is possible, return original code with parallelizable=False.
 """
 
-
 user_prompt = """
-Refactor the following C code to use OpenMP based on the analysis:
+Refactor the following C code based on the analysis.
 
-Original Code:
+ORIGINAL CODE:
 ```c
 {source_code}
 ```
 
-Analysis Report:
+ANALYSIS REPORT:
 {analysis_report}
 
-Apply OpenMP parallelization to the identified loops. Return the COMPLETE modified C code.
+Constraints:
+- Apply changes only to the regions referenced in the analysis report.
+- If the analysis report does not explicitly say a candidate is safe, do not parallelize it.
+- Keep behavior identical.
+
+Return the complete modified C code.
 """
 
 prompt = ChatPromptTemplate.from_messages([
@@ -57,25 +86,5 @@ prompt = ChatPromptTemplate.from_messages([
     ("user", user_prompt),
 ])
 
-# c_implementer_agent = prompt | gpt_oss_llm.with_structured_output(CImplementerOutput)
-
-# Simple wrapper for compatibility with the graph caller which expects .modified_output
-from langchain_core.runnables import RunnableLambda
-
-def extract_code(msg):
-    # Extract code from between ```c and ``` if present, otherwise take raw
-    content = msg.content
-    if "```c" in content:
-        code = content.split("```c")[1].split("```")[0].strip()
-    elif "```" in content:
-        code = content.split("```")[1].split("```")[0].strip()
-    else:
-        code = content.strip()
-    
-    return CImplementerOutput(
-        modified_output=code,
-        parallelizable=True,
-        changes_summary="OpenMP parallelization applied."
-    )
-
-c_implementer_agent = prompt | llm | RunnableLambda(extract_code)
+# Use structured output with the LLM
+c_implementer_agent = prompt | llm.with_structured_output(CImplementerOutput)
