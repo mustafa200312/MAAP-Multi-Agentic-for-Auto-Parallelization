@@ -3,8 +3,8 @@
 An intelligent agentic system that automatically optimizes code by identifying slow sequential loops and refactoring them into parallel implementations.
 
 **Supported Languages:**
-- 🐍 **Python** → Parallelized using `joblib`
-- ⚡ **C** → Parallelized using `OpenMP`
+- 🐍 **Python** → Parallelized using `joblib` (Loops)
+- ⚡ **C** → Parallelized using `OpenMP` (**Loops & Task Parallelism**)
 
 ## 🏗️ Architecture
 
@@ -51,19 +51,18 @@ graph TD
 -   ✅ **Validator**: Generates Python test scripts to verify output correctness and speedup.
 
 ### C-Specific (OpenMP)
--   🕵️ **Analyzer**: Uses `pycparser` for C AST analysis, detects data dependencies, reduction patterns.
--   👷 **Implementer**: Adds `#pragma omp parallel for` with appropriate clauses:
-    - `reduction()` for accumulation patterns
-    - `private()` / `shared()` for variable scoping
-    - `schedule()` for load balancing
--   ✅ **Validator**: Compiles with `gcc -fopenmp`, runs both versions, compares outputs.
+-   🕵️ **Analyzer**: Uses `pycparser` + LLM to detect:
+    -   **Data Parallelism**: Loops with reduction patterns, private/shared variables.
+    -   **Task Parallelism**: Independent code blocks (using RAW/WAR/WAW analysis) for `#pragma omp sections`.
+-   👷 **Implementer**: Adds `#pragma omp parallel for` or `#pragma omp parallel sections`.
+-   ✅ **Validator**: Compiles with `gcc -fopenmp`, measures execution time, and provides **Speedup Reports**.
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
 -   Python 3.10+
--   Azure OpenAI API Key (or compatible LLM config)
+-   Mistral AI API Key (Devstral recommended)
 -   **For C support**: GCC with OpenMP support (`gcc -fopenmp`)
 
 ### Installation
@@ -75,10 +74,9 @@ graph TD
     ```
 3.  Configure your environment variables in `.env`:
     ```ini
-    GPT_OSS_DEPLOYMENT_NAME=gpt-4o
-    AZURE_OPENAI_API_VERSION=...
-    AZURE_OPENAI_ENDPOINT=...
-    AZURE_OPENAI_API_KEY=...
+    model=devstral-2512
+    api_key=your_mistral_api_key
+    base_url=https://api.mistral.ai/v1
     ```
 
 4.  **(For C support)** Ensure GCC with OpenMP is installed:
@@ -200,10 +198,42 @@ int main() {
 }
 ```
 
-**Compile and run**:
-```bash
-gcc -fopenmp -o sum_parallel sum_array_parallel.c
-./sum_parallel
+### C Task Parallelism Example (Sections)
+
+**Input (`tasks.c`)**:
+```c
+int main() {
+    heavy_task_1();
+    heavy_task_2();
+    return 0;
+}
+```
+
+**Output (`tasks_parallel.c`)**:
+```c
+int main() {
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        heavy_task_1();
+
+        #pragma omp section
+        heavy_task_2();
+    }
+    return 0;
+}
+```
+
+## 📊 Performance Reporting
+
+MAAP now provides a **Speedup Report** after every successful validation:
+
+```text
+=== PERFORMANCE REPORT ===
+Original Time: 5.3615s
+Parallel Time: 1.4502s
+Speedup:      3.69x
+==========================
 ```
 
 ## 📂 Project Structure
@@ -223,7 +253,7 @@ MAAP/
 │   ├── c_validator.py      # C compilation & validation generator
 │   └── c_ast_utils.py      # C AST parser using pycparser
 ├── LLMs/
-│   └── azure_models.py     # LLM configuration
+│   └── azure_models.py     # Mistral/LLM configuration
 ├── temp_env/               # (Ephemeral) Python validation sandbox
 ├── temp_env_c/             # (Ephemeral) C compilation sandbox
 └── requirements.txt
@@ -233,7 +263,7 @@ MAAP/
 
 | Dependency | Purpose |
 |------------|---------|
-| `langchain` | LLM chain orchestration |
+| `langchain-mistralai` | Mistral AI integration |
 | `langgraph` | Stateful agent workflow graphs |
 | `pycparser` | C code AST parsing |
 | `joblib` | Python parallel execution |
