@@ -3,7 +3,7 @@ C Code Validator Agent for OpenMP parallelization.
 Creates validation scripts to verify that parallelized C code produces correct results.
 """
 
-from LLMs.azure_models import gpt_oss_llm
+from LLMs.llms import llm
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import Field, BaseModel
 
@@ -12,13 +12,13 @@ class CValidatorOutput(BaseModel):
     validation_script_code: str = Field(..., description="A Python script that compiles and runs both C versions, then compares results.")
     explanation: str = Field(..., description="Explanation of the validation strategy.")
     compile_flags_original: str = Field(default="gcc -o original original.c", description="Compilation command for original code.")
-    compile_flags_parallel: str = Field(default="gcc -fopenmp -o parallel parallel.c", description="Compilation command for parallel code.")
+    compile_flags_parallel: str = Field(default="gcc -fopenmp -o parallel refactored.c", description="Compilation command for parallel code.")
 
 
 system_prompt = r"""You are a C/OpenMP Code Validation Specialist.
 Your task is to create a Python validation script that:
 1. Compiles the original C code: `gcc -O2 -o original original.c -lm`
-2. Compiles the parallelized C code: `gcc -O2 -fopenmp -o parallel parallel.c -lm`
+2. Compiles the parallelized C code: `gcc -O2 -fopenmp -o parallel refactored.c -lm`
 3. Runs both and compares outputs.
 
 **Crucial Logic for Parallelism**:
@@ -29,9 +29,11 @@ Do NOT do a simple string comparison if the order might be non-deterministic.
 4. Print "Validation Passed" if results match (ignoring order if appropriate), "Validation Failed" otherwise.
 
 5. **Mandatory Metrics Reporting**: 
-   If validation passes, the script MUST print exactly one line in this format:
-   `METRICS: {{"original_time": <float>, "parallel_time": <float>, "speedup": <float>}}`
+   ALWAYS print valid JSON at the very end (even on error):
+   `{{"is_correct": bool, "original_time": float, "refactored_time": float, "speedup": float, "error": "string or null"}}`
    Use `time.perf_counter()` to measure the wall-clock execution time of the executables.
+   If "is_correct" is false, provide a brief error message in "error".
+6. Wrap ALL execution (including compilation subprocess calls) in try/except blocks. Specifically handle `FileNotFoundError` if `gcc` is missing. If compilation fails, return metrics with `is_correct: false` and `error: "Compilation failed..."`.
 
 Output ONLY the Python script inside ```python ... ``` blocks.
 """
@@ -75,4 +77,4 @@ def extract_validator(msg):
         explanation="Custom validation script generated."
     )
 
-c_validator_agent = prompt | gpt_oss_llm | RunnableLambda(extract_validator)
+c_validator_agent = prompt | llm | RunnableLambda(extract_validator)

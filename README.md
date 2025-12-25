@@ -27,8 +27,13 @@ python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 
 # Install dependencies
-pip install langgraph langchain langchain-mistralai pydantic joblib python-dotenv
+pip install langgraph langchain langchain-mistralai pydantic joblib python-dotenv pycparser
 ```
+
+### 🧰 C Language Prerequisites
+To use the C parallelization features, you must have GCC installed and accessible in your system PATH.
+*   **Windows**: Install [MinGW-w64](https://www.mingw-w64.org/) or use WSL.
+*   **Linux/Mac**: Typically pre-installed or available via `sudo apt install gcc` / `brew install gcc`.
 
 ## ⚙️ Configuration
 
@@ -53,17 +58,54 @@ python main.py demo_workload.py
 
 ## 🧠 System Architecture
 
-The system uses a **LangGraph** workflow with three primary agents:
+The system uses a **LangGraph** workflow with three primary agents. The workflow automatically routes based on file extension (`.py` or `.c`).
 
-1.  **Analyzer Agent**:
-    *   Inputs: Source Code + AST Analysis.
-    *   Output: List of `Candidates` (Line ranges, Types, Parallelizability).
-2.  **Implementer Agent**:
-    *   Inputs: Source Code + Candidates.
-    *   Output: Refactored Code using `joblib` or `concurrent.futures`.
-6.  **Validator Agent**:
-    *   Inputs: Original vs. Refactored Code.
-    *   Output: Python script that measures execution time and asserts output equality.
+```mermaid
+flowchart TD
+    A[📄 Input File] --> B{File Extension?}
+    
+    B -->|.py| C[🔍 Python Analyzer]
+    B -->|.c| D[🔍 C Analyzer]
+    
+    C --> E[⚡ Python Implementer]
+    D --> F[⚡ C Implementer]
+    
+    E --> G[✅ Python Validator]
+    F --> H[✅ C Validator]
+    
+    G --> I{Valid?}
+    H --> I
+    
+    I -->|Yes| J[📁 optimized.py/.c]
+    I -->|No, Retry < 3| E
+    I -->|No, Retry < 3| F
+    I -->|No, Max Retries| K[📁 optimized_FAILED.py/.c]
+    
+    subgraph "Python Path"
+        C
+        E
+        G
+    end
+    
+    subgraph "C/OpenMP Path"
+        D
+        F
+        H
+    end
+    
+    style A fill:#e1f5fe
+    style J fill:#c8e6c9
+    style K fill:#ffcdd2
+```
+
+### Agent Responsibilities:
+
+| Agent | Python | C/OpenMP |
+|-------|--------|----------|
+| **Analyzer** | AST + LLM analysis for `loop_map`, `task_graph`, `vectorize` | AST + LLM analysis for OpenMP opportunities |
+| **Implementer** | Applies `joblib` / `concurrent.futures` | Applies `#pragma omp parallel for`, `simd` |
+| **Validator** | Generates Python test script | Generates script to compile & run with `gcc` |
+
 
 ## 🎯 Supported Patterns
 

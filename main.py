@@ -39,10 +39,12 @@ def main():
 
     # Structured Output Directory
     source_basename = os.path.splitext(os.path.basename(file_path))[0]
+    source_extension = os.path.splitext(file_path)[1]
+    
     output_dir = os.path.join("output", source_basename)
     os.makedirs(output_dir, exist_ok=True)
     
-    optimized_path = os.path.join(output_dir, "optimized.py")
+    optimized_path = os.path.join(output_dir, "optimized.py" if source_extension != ".c" else "optimized.c")
     report_path = os.path.join(output_dir, "report.txt")
     validation_script_path = os.path.join(output_dir, "validation_script.py")
 
@@ -59,6 +61,7 @@ def main():
     initial_state = {
         "source_code": source_code,
         "source_filename": source_basename,
+        "source_extension": source_extension,
         "output_dir": output_dir,
         "iterations": 0,
         "messages": []
@@ -114,7 +117,7 @@ def main():
             
             # Save the modified code anyway for inspection
             if "modified_code" in result:
-                failed_path = os.path.join(output_dir, "optimized_FAILED.py")
+                failed_path = os.path.join(output_dir, "optimized_FAILED.py" if source_extension != ".c" else "optimized_FAILED.c")
                 with open(failed_path, "w", encoding="utf-8") as f:
                      f.write(result.get("modified_code", ""))
                 logger.info(f"Saved unverified code to {failed_path} for inspection.")

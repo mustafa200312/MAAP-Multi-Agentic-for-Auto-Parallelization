@@ -3,7 +3,7 @@ C Code Analyzer Agent for OpenMP parallelization.
 Analyzes C code to identify loops suitable for OpenMP parallelization.
 """
 
-from LLMs.azure_models import gpt_oss_llm
+from LLMs.llms import llm
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import Field, BaseModel
 
@@ -15,11 +15,21 @@ class CAnalyzerOutput(BaseModel):
 
 
 system_prompt = r"""You are an expert C Code Analyzer for OpenMP.
-Identify parallelization opportunities in C code:
-1. **Data Parallelism**: `for` loops.
-2. **Task Parallelism**: Independent code blocks (`parallel sections`).
+Identify parallelization opportunities in C code and categorize them into:
 
-For each, analyze dependencies and suggest appropriate OpenMP pragmas.
+1. **loop_map** (Data Parallelism):
+   - Strategy: `#pragma omp parallel for`
+   - Target: `for` loops with independent iterations. Check for reductions (e.g., `sum += ...`) or private variables.
+
+2. **task_graph** (Task Parallelism):
+   - Strategy: `#pragma omp parallel sections`
+   - Target: Independent code blocks or function calls that can run concurrently.
+
+3. **vectorize** (SIMD):
+   - Strategy: `#pragma omp simd`
+   - Target: Small inner loops or element-wise operations on arrays.
+
+For each, analyze dependencies/conflicts and suggest the specific OpenMP pragmas.
 """
 
 user_prompt = """
@@ -58,4 +68,4 @@ def extract_analysis(msg):
         parallelizable_sections=sections
     )
 
-c_dependencies_detector_agent = prompt | gpt_oss_llm | RunnableLambda(extract_analysis)
+c_dependencies_detector_agent = prompt | llm | RunnableLambda(extract_analysis)

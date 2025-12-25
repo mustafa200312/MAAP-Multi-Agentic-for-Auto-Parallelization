@@ -3,7 +3,7 @@ C Code Implementer Agent for OpenMP parallelization.
 Transforms C code to use OpenMP pragmas for parallel execution.
 """
 
-from LLMs.azure_models import gpt_oss_llm
+from LLMs.llms import llm
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import Field, BaseModel
 
@@ -17,15 +17,26 @@ class CImplementerOutput(BaseModel):
 system_prompt = r"""You are a C/OpenMP Parallelization Expert.
 Refactor the provided C code to use OpenMP for parallel execution based on the analysis report.
 
+Implementation Strategies:
+1. **loop_map**: Use `#pragma omp parallel for`.
+   - Handle reductions: `reduction(op:var)`
+   - Ensure `schedule(dynamic)` if workload is uneven.
+
+2. **task_graph**: Use `#pragma omp parallel sections`.
+   - Wrap independent blocks in `#pragma omp section`.
+
+3. **vectorize**: Use `#pragma omp simd`.
+   - For small inner loops without dependencies.
+
 Guidelines:
 1. Include `#include <omp.h>`.
-2. Use `#pragma omp parallel for` for loops.
-3. Use `#pragma omp parallel sections` for independent task blocks.
-4. Ensure code is syntactically correct and compilable.
-5. Preserve original logic and results.
+2. Ensure code is syntactically correct and compilable.
+3. Preserve original logic and results.
+4. **CRITICAL**: Do NOT use `private(...)` clauses. Variables declared inside the loop (like `for(int i=0; ...)` or `double val = ...;`) are automatically private in OpenMP. Adding `private()` for these causes compilation errors.
 
 Output ONLY the complete C code. Do NOT include explanations or markdown formatting in the code itself.
 """
+
 
 user_prompt = """
 Refactor the following C code to use OpenMP based on the analysis:
@@ -67,4 +78,4 @@ def extract_code(msg):
         changes_summary="OpenMP parallelization applied."
     )
 
-c_implementer_agent = prompt | gpt_oss_llm | RunnableLambda(extract_code)
+c_implementer_agent = prompt | llm | RunnableLambda(extract_code)
