@@ -5,3 +5,7 @@ test/
 paper/
 test_ast_output.py
 specification.pdf
+leetcode-solutions.jsonl
+try.ipynb
+benchmark_results.csv
+run_benchmarks.py

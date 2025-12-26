@@ -71,10 +71,21 @@ def implementer_node(state: AgentState):
     
     is_c = state.get("source_extension") == ".c"
     
+    # Check if this is a retry with previous error
+    validation_output = state.get("validation_output", "")
+    iterations = state.get("iterations", 0)
+    
+    if iterations > 0 and validation_output:
+        print(f"[RETRY {iterations}] Previous validation failed, passing error to LLM...")
+        previous_error = f"PREVIOUS ERROR (Attempt {iterations}):\n{validation_output}\n\nPlease fix the issue above."
+    else:
+        previous_error = ""
+    
     if is_c:
         result = c_implementer_agent.invoke({
             "source_code": state["source_code"], 
-            "analysis_report": state["analysis_report"]
+            "analysis_report": state["analysis_report"],
+            "previous_error": previous_error
         })
         # result is CImplementerOutput (modified_code, parallelizable, changes)
         print("C Implementer Changes:")
@@ -84,7 +95,8 @@ def implementer_node(state: AgentState):
     else:
         result = implementer_agent.invoke({
             "source_code": state["source_code"], 
-            "analysis_report": state["analysis_report"]
+            "analysis_report": state["analysis_report"],
+            "previous_error": previous_error
         })
         # result is OutputModel
         print("Implementer Changes:")
@@ -175,6 +187,12 @@ def validator_node(state: AgentState):
                 t_orig_str = f"{t_orig:.4f}s" if t_orig is not None else "N/A"
                 t_ref_str = f"{t_ref:.4f}s" if t_ref is not None else "N/A"
                 speedup_str = f"{speedup:.2f}x" if speedup is not None else "N/A"
+
+                # Enforce Speedup Check: If slower, mark as invalid
+                if is_valid and speedup is not None and speedup < 1.0:
+                    is_valid = False
+                    metrics['error'] = f"Performance regression detected. Speedup {speedup:.2f}x < 1.0x"
+                    output_log += f"NOTE: Validation marked as FAILED due to performance regression (Speedup < 1.0).\n"
                 
                 output_log += f"Validation {'PASSED' if is_valid else 'FAILED'}\n"
                 output_log += f"Original Time:  {t_orig_str}\n"
@@ -203,7 +221,7 @@ def orchestrator_node(state: AgentState):
 def router(state: AgentState):
     if state.get("is_valid"):
         return "end"
-    if state.get("iterations", 0) > 3:
+    if state.get("iterations", 0) > 2:
         return "end"
     return "implementer"
 

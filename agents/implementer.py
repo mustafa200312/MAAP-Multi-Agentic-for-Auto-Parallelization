@@ -61,11 +61,14 @@ ORIGINAL CODE:
 ANALYSIS REPORT:
 {analysis_report}
 
+{previous_error}
+
 Constraints:
 - Apply changes only to the regions referenced in the analysis report.
 - If the analysis report does not explicitly say a candidate is safe, do not parallelize it.
 - Keep behavior identical.
 - Keep behavior identical, including ordering if relevant.
+- If there is a PREVIOUS ERROR above, you MUST fix the issue that caused it.
 
 Return the complete modified code.
 """
