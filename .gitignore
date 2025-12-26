@@ -1,6 +1,7 @@
 .env
 .venv/
-.output/
-.test/
-test/*
-output/*
+output/
+test/
+paper/
+test_ast_output.py
+specification.pdf
